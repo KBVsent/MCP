@@ -65,4 +65,4 @@ def get_anime_calendar(
     return anime_tool.execute(weekday=weekday_int, format=format)
 
 if __name__ == "__main__":
-    mcp.run()
+    mcp.run(transport="sse", host="0.0.0.0", port=1134)
