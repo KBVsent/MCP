@@ -1,93 +1,71 @@
 import os
-import subprocess
-from rich import print
-from dotenv import load_dotenv
-
 import anthropic
+from rich import print
+from rich.console import Console
+from rich.spinner import Spinner
+from rich.live import Live
+import time
 
-load_dotenv()
+# Your server URL (replace with your actual URL)
+url = 'https://b.moev.cc/mcp'
 
 api_key = os.environ.get("ANTHROPIC_API_KEY")
 print(f"API Key loaded: {api_key[:10]}..." if api_key else "No API Key found")
 
-# 启动MCP服务器作为子进程（stdio模式）
-server_process = subprocess.Popen(
-    ["python", "mcp_server.py"],
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    text=True,
-    cwd="/Users/vsentkb/PycharmProjects/MCP"
-)
-
 client = anthropic.Anthropic(api_key=api_key)
+console = Console()
 
-# 测试动漫日历查询
+# 显示开始请求的状态
+print("\n[bold blue]🚀 正在发送请求到 MCP 服务器...[/bold blue]")
+print(f"[dim]服务器地址: {url}[/dim]")
+print(f"[dim]模型: claude-sonnet-4-20250514[/dim]")
+print("[dim]查询内容: 告诉我这周日的番剧[/dim]\n")
+
 try:
-    response = client.beta.messages.create(
-        model="claude-3-5-sonnet-20241022",
-        max_tokens=2000,
-        messages=[{
-            "role": "user", 
-            "content": "请帮我查询这周的动漫播放安排，我想看看星期五有什么好看的番剧。"
-        }],
-        mcp_servers=[
-            {
-                "type": "stdio",
-                "command": "python",
-                "args": ["mcp_server.py"],
-                "name": "anime-calendar-server",
-                "env": dict(os.environ)
-            }
-        ],
-        extra_headers={
-            "anthropic-beta": "mcp-client-2025-04-04"
-        }
-    )
-
-    print("\n=== Claude 响应 ===")
-    print(response.content)
-    
-finally:
-    # 确保子进程被正确关闭
-    if server_process:
-        server_process.terminate()
-        server_process.wait()
-
-# 可以添加更多测试查询
-def test_anime_queries():
-    """测试不同的动漫查询"""
-    queries = [
-        "今天有什么动漫播出？",
-        "帮我查看星期一的番剧安排",
-        "这周有哪些新番值得追？",
-        "给我详细的本周动漫时间表"
-    ]
-    
-    for i, query in enumerate(queries, 1):
-        print(f"\n=== 测试查询 {i} ===")
-        print(f"查询: {query}")
-        
-        try:
-            response = client.beta.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=1500,
-                messages=[{"role": "user", "content": query}],
-                mcp_servers=[{
-                    "type": "stdio",
-                    "command": "python",
-                    "args": ["mcp_server.py"],
-                    "name": "anime-calendar-server",
-                    "env": dict(os.environ)
-                }],
-                extra_headers={
-                    "anthropic-beta": "mcp-client-2025-04-04"
+    # 使用流式响应
+    with console.status("[bold green]等待 Claude 响应中...", spinner="dots") as status:
+        response = client.beta.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1000,
+            messages=[{"role": "user", "content": "告诉我这周日的番剧"}],
+            mcp_servers=[
+                {
+                    "type": "url",
+                    "url": f"{url}/sse",
+                    "name": "AnimeAndWeatherAssistant",
                 }
-            )
-            print("响应:")
-            print(response.content)
-        except Exception as e:
-            print(f"查询失败: {e}")
-
-# 取消注释来运行测试
-# test_anime_queries()
+            ],
+            extra_headers={
+                "anthropic-beta": "mcp-client-2025-04-04"
+            },
+            stream=True  # 启用流式响应
+        )
+        
+        status.update("[bold green]正在接收响应...")
+        
+        print("\n[bold cyan]📥 Claude 回复：[/bold cyan]")
+        print("─" * 50)
+        
+        # 实时显示流式响应
+        full_response = ""
+        for chunk in response:
+            if chunk.type == "message_start":
+                print("[dim]开始接收消息...[/dim]")
+            elif chunk.type == "content_block_start":
+                print("[dim]内容块开始...[/dim]")
+            elif chunk.type == "content_block_delta":
+                if hasattr(chunk.delta, 'text'):
+                    text_chunk = chunk.delta.text
+                    print(text_chunk, end='', flush=True)
+                    full_response += text_chunk
+            elif chunk.type == "content_block_stop":
+                print("\n[dim]内容块结束[/dim]")
+            elif chunk.type == "message_stop":
+                print("\n[dim]消息接收完成[/dim]")
+        
+        print("\n" + "─" * 50)
+        print(f"[bold green]✅ 响应完成！总字符数: {len(full_response)}[/bold green]")
+        
+except Exception as e:
+    print(f"\n[bold red]❌ 请求失败: {str(e)}[/bold red]")
+    print("[dim]请检查网络连接和API密钥[/dim]")
