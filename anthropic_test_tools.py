@@ -47,10 +47,10 @@ class MCPStdioClient:
             # 启动后台线程读取输出
             self._start_reader_threads()
             
-            print(f"✅ MCP 服务器已启动 (PID: {self.process.pid})")
+            print(f"[green]✅ MCP 服务器已启动 (PID: {self.process.pid})[/green]")
             return True
         except Exception as e:
-            print(f"❌ 启动 MCP 服务器失败: {e}")
+            print(f"[red]❌ 启动 MCP 服务器失败: {e}[/red]")
             return False
     
     def _start_reader_threads(self):
@@ -78,18 +78,18 @@ class MCPStdioClient:
                         error_msg = line.strip()
                         # 区分日志级别，只有真正的错误才标记为错误
                         if any(level in error_msg.upper() for level in ['ERROR', 'CRITICAL', 'FATAL']):
-                            print(f"🔴 MCP 服务器错误: {error_msg}")
+                            print(f"[red]🔴 MCP 服务器错误: {error_msg}[/red]")
                             self.stderr_queue.put(error_msg)
                         elif any(level in error_msg.upper() for level in ['WARN', 'WARNING']):
-                            print(f"⚠️ MCP 服务器警告: {error_msg}")
+                            print(f"[yellow]⚠️ MCP 服务器警告: {error_msg}[/yellow]")
                         elif any(level in error_msg.upper() for level in ['INFO', 'DEBUG']):
                             print(f"ℹ️ MCP 服务器信息: {error_msg}")
                         else:
                             # 对于无法识别级别的消息，保持谨慎，仍标记为错误
-                            print(f"🔴 MCP 服务器输出: {error_msg}")
+                            print(f"[yellow]🔴 MCP 服务器输出: {error_msg}[/yellow]")
                             self.stderr_queue.put(error_msg)
                 except Exception as e:
-                    print(f"❌ 读取 stderr 错误: {e}")
+                    print(f"[red]❌ 读取 stderr 错误: {e}[/red]")
                     break
         
         # 启动后台线程
@@ -133,7 +133,7 @@ class MCPStdioClient:
                     continue
             
             # 超时处理
-            print(f"⏰ 请求超时 ({timeout}秒): {method}")
+            print(f"[red]⏰ 请求超时 ({timeout}秒): {method}[/red]")
             
             # 检查是否有错误信息
             error_messages = []
@@ -145,7 +145,7 @@ class MCPStdioClient:
                 pass
             
             if error_messages:
-                print(f"🔴 发现错误信息: {error_messages}")
+                print(f"[red]🔴 发现错误信息: {error_messages}[/red]")
             
             return None
             
@@ -170,7 +170,7 @@ class MCPStdioClient:
         })
         
         if response and "error" not in response:
-            print("✅ MCP 连接初始化成功")
+            print("[green]✅ MCP 连接初始化成功[/green]")
             
             # 发送 initialized 通知
             initialized_request = {
@@ -261,7 +261,7 @@ def create_anthropic_tools_from_mcp(mcp_tools):
     return anthropic_tools
 
 def query_with_mcp_tools(query, mcp_client, conversation_history=None):
-    """使用 MCP 工具进行查询，支持多轮对话"""
+    """使用 MCP 工具进行查询，支持多轮对话和流式输出"""
     print(f"\n🤖 开始处理查询: {query}")
     
     # 如果没有提供对话历史，创建新的
@@ -282,87 +282,165 @@ def query_with_mcp_tools(query, mcp_client, conversation_history=None):
         messages = conversation_history.copy()
         messages.append({"role": "user", "content": query})
         
-        # 调用 Claude API
+        # 调用 Claude API（流式）
         print("📞 正在调用 Claude API...")
-        response = client.messages.create(
+        print("\n💬 Claude 回复:")
+        print("-" * 40)
+        
+        # 使用流式 API
+        response_stream = client.messages.create(
             model="claude-3-5-sonnet-20241022",
             max_tokens=2000,
             messages=messages,
-            tools=anthropic_tools
+            tools=anthropic_tools,
+            stream=True
         )
         
-        print("✅ Claude API 调用成功")
-        
-        # 处理响应和工具调用
+        # 处理流式响应
         assistant_content = []
+        current_text = ""
+        current_tool_use = None
         
-        if response.content:
-            for content_block in response.content:
-                if content_block.type == "text":
-                    print(f"\n💬 Claude 回复: {content_block.text}")
-                    assistant_content.append(content_block)
-                elif content_block.type == "tool_use":
-                    tool_name = content_block.name
-                    tool_args = content_block.input
-                    tool_use_id = content_block.id
+        for chunk in response_stream:
+            print(f"[blue]{chunk}[/blue]")
+            if chunk.type == "message_start":
+                continue
+            elif chunk.type == "content_block_start":
+                if chunk.content_block.type == "text":
+                    # 开始新的文本块
+                    pass
+                elif chunk.content_block.type == "tool_use":
+                    # 开始新的工具使用块
+                    current_tool_use = {
+                        "type": "tool_use",
+                        "id": chunk.content_block.id,
+                        "name": chunk.content_block.name,
+                        "input": {}
+                    }
+            elif chunk.type == "content_block_delta":
+                if chunk.delta.type == "text_delta":
+                    # 流式文本输出
+                    text_delta = chunk.delta.text
+                    current_text += text_delta
+                    print(text_delta, end="", flush=True)
+                elif chunk.delta.type == "input_json_delta":
+                    # 工具参数的增量更新
+                    if current_tool_use:
+                        # 累积工具参数
+                        if 'input_json' not in current_tool_use:
+                            current_tool_use['input_json'] = ""
+                        current_tool_use['input_json'] += chunk.delta.partial_json
+            elif chunk.type == "content_block_stop":
+                if current_text:
+                    # 文本块结束，添加到内容中
+                    assistant_content.append({
+                        "type": "text",
+                        "text": current_text
+                    })
+                    current_text = ""
+                elif current_tool_use:
+                    # 工具使用块结束，解析参数
+                    try:
+                        if 'input_json' in current_tool_use:
+                            current_tool_use['input'] = json.loads(current_tool_use['input_json'])
+                            del current_tool_use['input_json']
+                        assistant_content.append(current_tool_use)
+                        current_tool_use = None
+                    except json.JSONDecodeError as e:
+                        print(f"\n❌ 工具参数解析错误: {e}")
+            elif chunk.type == "message_stop":
+                break
+        
+        print("\n" + "-" * 40)
+        print("✅ Claude API 调用完成")
+        
+        # 处理工具调用
+        has_tool_calls = any(content.get('type') == 'tool_use' for content in assistant_content)
+        
+        if has_tool_calls:
+            # 先添加助手的回复（包含工具调用）
+            messages.append({"role": "assistant", "content": assistant_content})
+            
+            # 处理每个工具调用
+            tool_results = []
+            for content in assistant_content:
+                if content.get('type') == 'tool_use':
+                    tool_name = content['name']
+                    tool_args = content['input']
+                    tool_use_id = content['id']
                     
                     print(f"\n🔧 Claude 要求调用工具: {tool_name}")
                     print(f"📝 工具参数: {tool_args}")
-                    
-                    assistant_content.append(content_block)
                     
                     # 调用 MCP 工具
                     tool_result = mcp_client.call_tool(tool_name, tool_args)
                     
                     if tool_result:
                         print(f"✅ 工具执行结果: {tool_result}")
-                        
-                        # 更新消息历史
-                        messages.append({"role": "assistant", "content": assistant_content})
-                        messages.append({
-                            "role": "user", 
-                            "content": [
-                                {
-                                    "type": "tool_result",
-                                    "tool_use_id": tool_use_id,
-                                    "content": json.dumps(tool_result, ensure_ascii=False)
-                                }
-                            ]
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": json.dumps(tool_result, ensure_ascii=False)
                         })
-                        
-                        # 将工具结果返回给 Claude
-                        print("📞 将工具结果返回给 Claude...")
-                        follow_up_response = client.messages.create(
-                            model="claude-3-5-sonnet-20241022",
-                            max_tokens=2000,
-                            messages=messages,
-                            tools=anthropic_tools
-                        )
-                        
-                        print("\n" + "="*50)
-                        print("🎯 Claude 最终回复")
-                        print("="*50)
-                        final_assistant_content = []
-                        for block in follow_up_response.content:
-                            if block.type == "text":
-                                print(block.text)
-                                final_assistant_content.append(block)
-                            elif block.type == "tool_use":
-                                # 如果还需要调用更多工具，可以递归处理
-                                print(f"🔧 Claude 还想调用工具: {block.name}")
-                                final_assistant_content.append(block)
-                        
-                        # 更新对话历史（包含最终回复）
-                        messages.append({"role": "assistant", "content": final_assistant_content})
                     else:
                         print("❌ 工具执行失败")
-                        # 即使工具失败，也要更新对话历史
-                        messages.append({"role": "assistant", "content": assistant_content})
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": "工具执行失败"
+                        })
+            
+            # 添加工具结果消息
+            if tool_results:
+                messages.append({
+                    "role": "user", 
+                    "content": tool_results
+                })
+                
+                # 将工具结果返回给 Claude（流式）
+                print("📞 将工具结果返回给 Claude...")
+                print("\n🎯 Claude 最终回复:")
+                print("-" * 40)
+                
+                follow_up_stream = client.messages.create(
+                    model="claude-3-5-sonnet-20241022",
+                    max_tokens=2000,
+                    messages=messages,
+                    tools=anthropic_tools,
+                    stream=True
+                )
+                
+                final_assistant_content = []
+                final_text = ""
+                
+                for chunk in follow_up_stream:
+                    if chunk.type == "content_block_start":
+                        if chunk.content_block.type == "text":
+                            pass
+                    elif chunk.type == "content_block_delta":
+                        if chunk.delta.type == "text_delta":
+                            text_delta = chunk.delta.text
+                            final_text += text_delta
+                            print(text_delta, end="", flush=True)
+                    elif chunk.type == "content_block_stop":
+                        if final_text:
+                            final_assistant_content.append({
+                                "type": "text",
+                                "text": final_text
+                            })
+                            final_text = ""
+                    elif chunk.type == "message_stop":
+                        break
+                
+                print("\n" + "-" * 40)
+                
+                # 更新对话历史（包含最终回复）
+                messages.append({"role": "assistant", "content": final_assistant_content})
         else:
-            # 如果没有内容，仍然更新对话历史
+            # 如果没有工具调用，直接更新对话历史
             messages.append({"role": "assistant", "content": assistant_content})
         
-        return response, messages
+        return True, messages  # 返回成功标志而不是response对象
         
     except Exception as e:
         print(f"❌ 查询失败: {e}")
@@ -406,9 +484,9 @@ def run_interactive_mode(mcp_client):
             print(f"\n🔄 第 {user_query_count} 轮对话 (历史消息: {len(conversation_history)} 条)")
             
             # 进行查询并更新对话历史
-            response, conversation_history = query_with_mcp_tools(query, mcp_client, conversation_history)
+            success, conversation_history = query_with_mcp_tools(query, mcp_client, conversation_history)
             
-            if response is None:
+            if success is None:
                 print("⚠️ 本轮对话失败，但对话历史已保留")
             
         except KeyboardInterrupt:
