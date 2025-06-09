@@ -8,7 +8,6 @@ from rich import print
 from dotenv import load_dotenv
 import anthropic
 from prompt_toolkit import prompt
-from prompt_toolkit.shortcuts import confirm
 
 load_dotenv()
 
@@ -302,7 +301,6 @@ def query_with_mcp_tools(query, mcp_client, conversation_history=None):
         current_tool_use = None
         
         for chunk in response_stream:
-            print(f"[blue]{chunk}[/blue]")
             if chunk.type == "message_start":
                 continue
             elif chunk.type == "content_block_start":
