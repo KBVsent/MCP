@@ -17,7 +17,6 @@ console = Console()
 print("\n[bold blue]🚀 正在发送请求到 MCP 服务器...[/bold blue]")
 print(f"[dim]服务器地址: {url}[/dim]")
 print(f"[dim]模型: claude-sonnet-4-20250514[/dim]")
-print("[dim]查询内容: 告诉我这周日的番剧[/dim]\n")
 
 try:
     # 显示连接状态
@@ -26,7 +25,7 @@ try:
     response = client.beta.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1000,
-        messages=[{"role": "user", "content": "告诉我这周四的番剧，给出简略的信息。"}],
+        messages=[{"role": "user", "content": "输出这周四的番剧。"}],
         mcp_servers=[
             {
                 "type": "url",
