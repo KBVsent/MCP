@@ -4,7 +4,7 @@ from typing import Annotated, Literal
 from pydantic import Field
 from enum import IntEnum
 
-mcp = FastMCP("AnimeAndWeatherAssistant")
+mcp = FastMCP("AnimeCalendarTool")
 
 # 定义星期枚举，提供更好的语义
 class Weekday(IntEnum):

@@ -3,9 +3,13 @@ import anthropic
 from rich import print
 from rich.console import Console
 import sys
+from dotenv import load_dotenv
+
+# 加载 .env 文件
+load_dotenv()
 
 # Your server URL (replace with your actual URL)
-url = 'https://b.moev.cc/ccp'
+url = os.environ.get("MCP_SERVER_URL")
 
 api_key = os.environ.get("ANTHROPIC_API_KEY")
 print(f"API Key loaded: {api_key[:10]}..." if api_key else "No API Key found")
@@ -25,12 +29,12 @@ try:
     response = client.beta.messages.create(
         model="claude-sonnet-4-20250514",
         max_tokens=1000,
-        messages=[{"role": "user", "content": "输出这周四的番剧。"}],
+        messages=[{"role": "user", "content": "在线查询今日新闻"}],
         mcp_servers=[
             {
                 "type": "url",
-                "url": f"{url}/mcp",
-                "name": "AnimeAndWeatherAssistant",
+                "url": f"{url}",
+                "name": "Perplexity Search MCP Server",
             }
         ],
         extra_headers={
